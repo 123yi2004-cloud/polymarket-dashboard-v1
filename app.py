@@ -1,6 +1,8 @@
 """
-Polymarket Price Movement Alert Dashboard
-Uses /price endpoint (not /book which returns stale data).
+Polymarket Price Movement Alert Dashboard - Fixed Version
+- Monitor thread starts correctly with gunicorn
+- Uses Gamma API lastTradePrice (no auth needed)
+- Settings don't auto-reset
 """
 
 from flask import Flask, jsonify, request, render_template_string
@@ -13,12 +15,15 @@ import os
 
 app = Flask(__name__)
 
+# ─────────────────────────────────────────
+# CONFIG
+# ─────────────────────────────────────────
 config = {
     "price_change_threshold_pct": 5.0,
     "window_seconds": 300,
-    "poll_interval_seconds": 20,
+    "poll_interval_seconds": 30,
     "max_alerts": 100,
-    "max_markets": 300,
+    "max_markets": 200,
     "keywords": [
         "s&p", "sp500", "nasdaq", "dow jones", "nikkei", "hang seng",
         "ftse", "dax", "stoxx", "russell", "vix", "stock market",
@@ -49,8 +54,10 @@ price_history = defaultdict(list)
 price_lock = threading.Lock()
 
 GAMMA_API = "https://gamma-api.polymarket.com"
-CLOB_API  = "https://clob.polymarket.com"
 
+# ─────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────
 def ts_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -58,7 +65,7 @@ def log_error(msg):
     with state_lock:
         state["errors"].insert(0, f"[{ts_now()}] {msg}")
         state["errors"] = state["errors"][:20]
-    print(f"ERROR: {msg}")
+    print(f"ERROR: {msg}", flush=True)
 
 def matches_keywords(title):
     t = title.lower()
@@ -81,168 +88,190 @@ def categorize(title):
         return "Macro"
     return "Other"
 
-def fetch_relevant_markets():
-    markets = []
+# ─────────────────────────────────────────
+# FETCH MARKETS + PRICES from Gamma API
+# Gamma API returns lastTradePrice — no auth needed
+# ─────────────────────────────────────────
+def fetch_markets_with_prices():
+    """Returns list of {token_id, title, outcome, category, price}"""
+    results = []
     offset, limit = 0, 100
     seen = set()
     with config_lock:
         max_m = config["max_markets"]
 
-    print(f"[{ts_now()}] Fetching markets...")
-    while len(markets) < max_m:
+    print(f"[{ts_now()}] Fetching markets...", flush=True)
+
+    while len(results) < max_m:
         try:
-            r = requests.get(f"{GAMMA_API}/markets",
-                             params={"active": "true", "closed": "false",
-                                     "limit": limit, "offset": offset},
-                             timeout=15)
+            r = requests.get(
+                f"{GAMMA_API}/markets",
+                params={"active": "true", "closed": "false",
+                        "limit": limit, "offset": offset},
+                timeout=15,
+            )
             r.raise_for_status()
             data = r.json()
         except Exception as e:
             log_error(f"Gamma API failed: {e}")
             break
+
         if not data:
             break
+
         for m in data:
             title = m.get("question") or m.get("title") or ""
-            if matches_keywords(title):
-                cid = m.get("conditionId") or m.get("condition_id")
-                if cid and cid not in seen:
-                    seen.add(cid)
-                    tokens = []
-                    for tok in m.get("tokens", []):
-                        tid = tok.get("token_id") or tok.get("tokenId")
-                        if tid:
-                            tokens.append({"token_id": tid, "outcome": tok.get("outcome", "")})
-                    if tokens:
-                        markets.append({
-                            "title": title,
-                            "condition_id": cid,
-                            "tokens": tokens,
-                            "category": categorize(title),
-                        })
+            if not matches_keywords(title):
+                continue
+
+            cid = m.get("conditionId") or m.get("condition_id")
+            if not cid or cid in seen:
+                continue
+            seen.add(cid)
+
+            category = categorize(title)
+            tokens = m.get("tokens", [])
+
+            for tok in tokens:
+                tid = tok.get("token_id") or tok.get("tokenId")
+                if not tid:
+                    continue
+
+                # Gamma API provides lastTradePrice directly — no auth needed
+                price = None
+                for field in ["lastTradePrice", "price", "midpoint"]:
+                    raw = tok.get(field) or m.get(field)
+                    if raw is not None:
+                        try:
+                            price = float(raw)
+                            break
+                        except (ValueError, TypeError):
+                            pass
+
+                results.append({
+                    "token_id": tid,
+                    "title":    title,
+                    "outcome":  tok.get("outcome", ""),
+                    "category": category,
+                    "price":    price,
+                })
+
         offset += limit
         if len(data) < limit:
             break
 
-    print(f"[{ts_now()}] Found {len(markets)} relevant markets")
-    return markets
+    valid = [r for r in results if r["price"] is not None and 0 < r["price"] < 1]
+    print(f"[{ts_now()}] Found {len(results)} tokens, {len(valid)} with valid prices", flush=True)
+    return results
 
-def fetch_price(token_id):
-    """Use /price endpoint — /book returns stale data (known Polymarket bug)."""
-    try:
-        r = requests.get(
-            f"{CLOB_API}/price",
-            params={"token_id": token_id, "side": "BUY"},
-            timeout=8,
-        )
-        if r.status_code == 200:
-            data = r.json()
-            price_str = data.get("price")
-            if price_str is not None:
-                return float(price_str)
-    except Exception:
-        pass
-    return None
-
+# ─────────────────────────────────────────
+# ALERT
+# ─────────────────────────────────────────
 def add_alert(title, outcome, category, old_price, new_price, pct_change, token_id, window_s):
     direction = "UP" if pct_change > 0 else "DOWN"
     alert = {
-        "time": ts_now(),
-        "title": title,
-        "outcome": outcome,
-        "category": category,
-        "old_price": round(old_price, 4),
-        "new_price": round(new_price, 4),
-        "pct_change": round(pct_change, 2),
-        "direction": direction,
+        "time":           ts_now(),
+        "title":          title,
+        "outcome":        outcome,
+        "category":       category,
+        "old_price":      round(old_price, 4),
+        "new_price":      round(new_price, 4),
+        "pct_change":     round(pct_change, 2),
+        "direction":      direction,
         "window_minutes": round(window_s / 60, 1),
-        "token_id": token_id[:20] + "...",
+        "token_id":       token_id[:20] + "...",
     }
-    print(f"[ALERT] {title} | {pct_change:+.2f}% | {old_price:.4f} -> {new_price:.4f}")
+    print(f"[ALERT] {title} | {pct_change:+.2f}% | {old_price:.4f} -> {new_price:.4f}", flush=True)
     with state_lock:
         state["alerts"].insert(0, alert)
         if len(state["alerts"]) > config["max_alerts"]:
             state["alerts"] = state["alerts"][:config["max_alerts"]]
 
+# ─────────────────────────────────────────
+# MONITOR LOOP
+# ─────────────────────────────────────────
 def monitor_loop():
-    token_index = {}
-    last_market_refresh = 0
-
+    print(f"[{ts_now()}] Monitor thread started", flush=True)
     with state_lock:
         state["status"] = "running"
 
     while True:
-        now = time.time()
-        with config_lock:
-            poll_interval = config["poll_interval_seconds"]
-            window_s      = config["window_seconds"]
-            threshold_pct = config["price_change_threshold_pct"]
+        try:
+            now = time.time()
+            with config_lock:
+                poll_interval = config["poll_interval_seconds"]
+                window_s      = config["window_seconds"]
+                threshold_pct = config["price_change_threshold_pct"]
 
-        if now - last_market_refresh > 3600:
-            markets = fetch_relevant_markets()
-            token_index = {}
-            for m in markets:
-                for tok in m["tokens"]:
-                    tid = tok["token_id"]
-                    token_index[tid] = {
-                        "title":    m["title"],
-                        "outcome":  tok["outcome"],
-                        "category": m["category"],
-                    }
-            last_market_refresh = now
+            # Fetch all markets + their current prices
+            tokens = fetch_markets_with_prices()
+
             with state_lock:
-                state["markets_count"] = len(markets)
-                state["tokens_count"]  = len(token_index)
+                state["markets_count"] = len(set(t["title"] for t in tokens))
+                state["tokens_count"]  = len(tokens)
 
-        all_tokens = list(token_index.keys())
-        fetched = 0
+            fetched = 0
+            for tok in tokens:
+                token_id = tok["token_id"]
+                price    = tok["price"]
+                if price is None:
+                    continue
 
-        for token_id in all_tokens:
-            price = fetch_price(token_id)
-            if price is None:
-                continue
+                fetched += 1
+                now2 = time.time()
 
-            fetched += 1
-
-            with price_lock:
-                history = price_history[token_id]
-                history.append((now, price))
-                price_history[token_id] = [(t, p) for t, p in history if now - t <= window_s]
-                history = price_history[token_id]
-
-            if len(history) < 2:
-                continue
-
-            oldest_ts, oldest_price = history[0]
-            if oldest_price <= 0:
-                continue
-
-            pct_change = ((price - oldest_price) / oldest_price) * 100
-
-            if abs(pct_change) >= threshold_pct:
-                info = token_index.get(token_id, {})
-                add_alert(
-                    title=info.get("title", "Unknown"),
-                    outcome=info.get("outcome", ""),
-                    category=info.get("category", "Other"),
-                    old_price=oldest_price,
-                    new_price=price,
-                    pct_change=pct_change,
-                    token_id=token_id,
-                    window_s=now - oldest_ts,
-                )
                 with price_lock:
-                    price_history[token_id] = [(now, price)]
+                    price_history[token_id].append((now2, price))
+                    price_history[token_id] = [
+                        (t, p) for t, p in price_history[token_id]
+                        if now2 - t <= window_s
+                    ]
+                    history = price_history[token_id]
 
-            time.sleep(0.3)  # avoid rate limiting
+                if len(history) < 2:
+                    continue
 
-        with state_lock:
-            state["last_checked"]   = ts_now()
-            state["prices_fetched"] += fetched
+                oldest_ts, oldest_price = history[0]
+                if oldest_price <= 0:
+                    continue
 
-        print(f"[{ts_now()}] Scanned {fetched}/{len(all_tokens)} tokens. Sleep {poll_interval}s.")
+                pct_change = ((price - oldest_price) / oldest_price) * 100
+
+                if abs(pct_change) >= threshold_pct:
+                    add_alert(
+                        title=tok["title"],
+                        outcome=tok["outcome"],
+                        category=tok["category"],
+                        old_price=oldest_price,
+                        new_price=price,
+                        pct_change=pct_change,
+                        token_id=token_id,
+                        window_s=now2 - oldest_ts,
+                    )
+                    with price_lock:
+                        price_history[token_id] = [(now2, price)]
+
+            with state_lock:
+                state["last_checked"]   = ts_now()
+                state["prices_fetched"] += fetched
+
+            print(f"[{ts_now()}] Scanned {fetched} tokens with prices. Sleeping {poll_interval}s.", flush=True)
+
+        except Exception as e:
+            log_error(f"Monitor loop error: {e}")
+
         time.sleep(poll_interval)
 
+# ─────────────────────────────────────────
+# START THREAD — runs at import time so
+# gunicorn picks it up correctly
+# ─────────────────────────────────────────
+_monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
+_monitor_thread.start()
+
+# ─────────────────────────────────────────
+# ROUTES
+# ─────────────────────────────────────────
 @app.route("/")
 def index():
     with open("templates/index.html") as f:
@@ -251,12 +280,12 @@ def index():
 @app.route("/api/alerts")
 def api_alerts():
     with state_lock:
-        s = dict(state)
-        s["alerts"] = list(state["alerts"])
+        s = {k: v for k, v in state.items() if k != "alerts"}
+        alerts = list(state["alerts"])
     with config_lock:
         c = dict(config)
     return jsonify({
-        "alerts":         s["alerts"],
+        "alerts":         alerts,
         "status":         s["status"],
         "markets_count":  s["markets_count"],
         "tokens_count":   s["tokens_count"],
@@ -277,7 +306,7 @@ def update_config():
             config["window_seconds"] = int(data["window_seconds"])
         if "poll_interval_seconds" in data:
             config["poll_interval_seconds"] = max(10, int(data["poll_interval_seconds"]))
-    print(f"[{ts_now()}] Config updated: threshold={config['price_change_threshold_pct']}%")
+    print(f"[{ts_now()}] Config updated: {config['price_change_threshold_pct']}% / {config['window_seconds']}s", flush=True)
     return jsonify({"ok": True, "config": config})
 
 @app.route("/api/clear", methods=["POST"])
@@ -288,18 +317,18 @@ def clear_alerts():
 
 @app.route("/api/debug")
 def debug():
-    """Check if prices are being fetched — visit /api/debug in browser."""
     sample = {}
     with price_lock:
         for tid, hist in list(price_history.items())[:5]:
             if hist:
-                sample[tid[:20]+"..."] = {"latest_price": hist[-1][1], "data_points": len(hist)}
+                sample[tid[:20]+"..."] = {
+                    "latest_price": hist[-1][1],
+                    "data_points":  len(hist),
+                }
     with state_lock:
         errs = list(state["errors"])
     return jsonify({"price_samples": sample, "recent_errors": errs})
 
 if __name__ == "__main__":
-    t = threading.Thread(target=monitor_loop, daemon=True)
-    t.start()
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
