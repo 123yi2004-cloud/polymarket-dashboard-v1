@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polymarket Alert Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0e1a;
+    color: #e0e6f0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #0d1b3e 0%, #1a0a2e 100%);
+    border-bottom: 1px solid #1e2d5a;
+    padding: 20px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .logo { font-size: 24px; }
+  .title { font-size: 20px; font-weight: 700; color: #fff; }
+  .subtitle { font-size: 12px; color: #7a8bb0; margin-top: 2px; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex;
+    gap: 24px;
+    background: #0d1428;
+    padding: 12px 32px;
+    border-bottom: 1px solid #1a2540;
+    flex-wrap: wrap;
+  }
+  .stat { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .stat-label { color: #556080; }
+  .stat-value { color: #a0b4e0; font-weight: 600; }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 8px #22c55e;
+    animation: pulse 2s infinite;
+  }
+  .dot.offline { background: #ef4444; box-shadow: 0 0 8px #ef4444; animation: none; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Main */
+  .main { padding: 24px 32px; max-width: 1200px; margin: 0 auto; }
+
+  /* Threshold cards */
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+  .card {
+    background: #0d1428;
+    border: 1px solid #1a2540;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card-label { font-size: 12px; color: #556080; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card-value { font-size: 28px; font-weight: 700; color: #60a5fa; margin-top: 6px; }
+  .card-sub { font-size: 12px; color: #3a4d70; margin-top: 4px; }
+
+  /* Alert list */
+  .section-title {
+    font-size: 14px;
+    color: #556080;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .alert-count {
+    background: #1a2540;
+    color: #60a5fa;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .alerts-list { display: flex; flex-direction: column; gap: 12px; }
+
+  .alert-item {
+    background: #0d1428;
+    border: 1px solid #1a2540;
+    border-radius: 12px;
+    padding: 18px 20px;
+    border-left: 4px solid #1a2540;
+    transition: transform 0.15s;
+    animation: slideIn 0.3s ease;
+  }
+  .alert-item:hover { transform: translateX(4px); }
+  .alert-item.LARGE_BET { border-left-color: #ef4444; }
+  .alert-item.SURGE { border-left-color: #f59e0b; }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .alert-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .alert-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .LARGE_BET .alert-badge { background: #7f1d1d; color: #fca5a5; }
+  .SURGE .alert-badge { background: #78350f; color: #fcd34d; }
+
+  .alert-time { font-size: 12px; color: #3a4d70; }
+  .alert-title { font-size: 15px; font-weight: 600; color: #c8d8f0; margin-bottom: 8px; line-height: 1.4; }
+  .alert-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; }
+  .meta-item { display: flex; gap: 6px; }
+  .meta-label { color: #3a4d70; }
+  .meta-value { color: #a0b4e0; font-weight: 600; }
+  .meta-value.big { color: #22c55e; font-size: 15px; }
+  .meta-value.surge { color: #fbbf24; }
+
+  .empty {
+    text-align: center;
+    padding: 80px 20px;
+    color: #2a3a5a;
+  }
+  .empty-icon { font-size: 48px; margin-bottom: 16px; }
+  .empty-text { font-size: 16px; }
+  .empty-sub { font-size: 13px; margin-top: 8px; color: #1e2d4a; }
+
+  /* Filter bar */
+  .filter-bar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .filter-btn {
+    background: #0d1428;
+    border: 1px solid #1a2540;
+    color: #556080;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover, .filter-btn.active {
+    background: #1a2d60;
+    border-color: #2a4080;
+    color: #a0b4e0;
+  }
+
+  @media (max-width: 640px) {
+    .header { padding: 16px; }
+    .main { padding: 16px; }
+    .cards { grid-template-columns: 1fr; }
+    .status-bar { padding: 10px 16px; gap: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="logo">📊</div>
+    <div>
+      <div class="title">Polymarket Alert Dashboard</div>
+      <div class="subtitle">Commodities &amp; Equity Markets · Real-time Large Bet Monitor</div>
+    </div>
+  </div>
+  <div class="dot" id="statusDot"></div>
+</div>
+
+<div class="status-bar">
+  <div class="stat">
+    <span class="stat-label">状态</span>
+    <span class="stat-value" id="statusText">连接中...</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">监控市场</span>
+    <span class="stat-value" id="marketsCount">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">最后检查</span>
+    <span class="stat-value" id="lastChecked">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">告警总数</span>
+    <span class="stat-value" id="alertCount">0</span>
+  </div>
+</div>
+
+<div class="main">
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">🚨 单笔大额阈值</div>
+      <div class="card-value" id="singleThreshold">—</div>
+      <div class="card-sub">单笔交易超过此金额立即告警</div>
+    </div>
+    <div class="card">
+      <div class="card-label">⚡ 累计突发阈值</div>
+      <div class="card-value" id="cumThreshold">—</div>
+      <div class="card-sub">120秒内累计金额超过此值告警</div>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <button class="filter-btn active" onclick="setFilter('ALL')">全部</button>
+    <button class="filter-btn" onclick="setFilter('LARGE_BET')">🚨 单笔大额</button>
+    <button class="filter-btn" onclick="setFilter('SURGE')">⚡ 累计突发</button>
+  </div>
+
+  <div class="section-title">
+    实时告警
+    <span class="alert-count" id="visibleCount">0</span>
+  </div>
+  <div class="alerts-list" id="alertsList">
+    <div class="empty">
+      <div class="empty-icon">👀</div>
+      <div class="empty-text">正在监控市场...</div>
+      <div class="empty-sub">发现大额下注时会立即显示在这里</div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentFilter = 'ALL';
+let allAlerts = [];
+
+function setFilter(f) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderAlerts();
+}
+
+function fmt(n) {
+  return '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+function renderAlerts() {
+  const list = document.getElementById('alertsList');
+  const filtered = currentFilter === 'ALL'
+    ? allAlerts
+    : allAlerts.filter(a => a.type === currentFilter);
+
+  document.getElementById('visibleCount').textContent = filtered.length;
+
+  if (filtered.length === 0) {
+    list.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">👀</div>
+        <div class="empty-text">暂无告警</div>
+        <div class="empty-sub">发现大额下注时会立即显示在这里</div>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(a => `
+    <div class="alert-item ${a.type}">
+      <div class="alert-header">
+        <span class="alert-badge">${a.type === 'LARGE_BET' ? '🚨 单笔大额' : '⚡ 累计突发'}</span>
+        <span class="alert-time">${a.time}</span>
+      </div>
+      <div class="alert-title">${a.title}</div>
+      <div class="alert-meta">
+        <div class="meta-item">
+          <span class="meta-label">金额</span>
+          <span class="meta-value big">${fmt(a.usdc)}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">结果</span>
+          <span class="meta-value">${a.outcome || '—'}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">方向</span>
+          <span class="meta-value">${a.side}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">价格</span>
+          <span class="meta-value">${a.price}</span>
+        </div>
+        ${a.extra ? `<div class="meta-item"><span class="meta-value surge">${a.extra}</span></div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function fetchData() {
+  try {
+    const r = await fetch('/api/alerts');
+    const d = await r.json();
+
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusText').textContent = d.status === 'running' ? '🟢 监控中' : d.status;
+    document.getElementById('marketsCount').textContent = d.markets_count || '—';
+    document.getElementById('lastChecked').textContent = d.last_checked || '—';
+    document.getElementById('alertCount').textContent = d.alerts.length;
+    document.getElementById('singleThreshold').textContent = '$' + (d.thresholds?.single || 5000).toLocaleString();
+    document.getElementById('cumThreshold').textContent = '$' + (d.thresholds?.cumulative || 20000).toLocaleString();
+
+    allAlerts = d.alerts;
+    renderAlerts();
+  } catch(e) {
+    document.getElementById('statusDot').className = 'dot offline';
+    document.getElementById('statusText').textContent = '⚠️ 连接失败';
+  }
+}
+
+fetchData();
+setInterval(fetchData, 5000);  // 每5秒刷新
+</script>
+</body>
+</html>
