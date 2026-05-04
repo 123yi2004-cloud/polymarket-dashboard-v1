@@ -1,6 +1,6 @@
 """
-Polymarket Large Bet Alert Dashboard
-后端：Flask + 后台监控线程
+Polymarket Price Movement Alert Dashboard
+Monitors sudden price changes in commodity & equity markets on Polymarket.
 """
 
 from flask import Flask, jsonify, render_template_string
@@ -9,60 +9,95 @@ import requests
 import time
 from datetime import datetime, timezone
 from collections import defaultdict
-import json
+import os
 
 app = Flask(__name__)
 
 # ─────────────────────────────────────────
-# CONFIG
+# DEFAULT CONFIG (can be updated via API)
 # ─────────────────────────────────────────
-CONFIG = {
-    "alert_threshold_usdc": 5_000,
-    "cumulative_threshold_usdc": 20_000,
-    "cumulative_window_seconds": 120,
-    "poll_interval_seconds": 15,
-    "max_alerts": 100,       # 最多保留多少条告警
-    "max_markets": 200,
+config = {
+    "price_change_threshold_pct": 10.0,   # % change to trigger alert
+    "window_seconds": 300,                 # time window to measure change (5 min)
+    "poll_interval_seconds": 20,
+    "max_alerts": 100,
+    "max_markets": 300,
     "keywords": [
+        # US Equity
         "s&p", "sp500", "nasdaq", "dow jones", "nikkei", "hang seng",
-        "ftse", "dax", "stoxx", "russell", "vix",
+        "ftse", "dax", "stoxx", "russell", "vix", "stock market",
+        "bull", "bear", "recession", "crash", "rally",
+        # Commodities
         "gold", "silver", "oil", "crude", "brent", "wti",
         "natural gas", "copper", "wheat", "corn", "soybean",
-        "cotton", "sugar", "coffee", "cocoa",
-        "fed rate", "interest rate", "inflation", "cpi", "recession",
-        "treasury", "yield curve",
+        "cotton", "sugar", "coffee", "cocoa", "platinum", "palladium",
+        # Macro / rates
+        "fed rate", "interest rate", "inflation", "cpi", "pce",
+        "treasury", "yield", "gdp",
+        # Crypto (correlated)
         "bitcoin", "btc", "ethereum", "eth",
     ],
 }
+config_lock = threading.Lock()
+
+# ─────────────────────────────────────────
+# STATE
+# ─────────────────────────────────────────
+state = {
+    "alerts": [],
+    "status": "starting",
+    "markets_count": 0,
+    "tokens_count": 0,
+    "last_checked": None,
+    "uptime_start": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+}
+state_lock = threading.Lock()
+
+# price history: { token_id: [(timestamp, price), ...] }
+price_history = defaultdict(list)
+price_lock = threading.Lock()
 
 GAMMA_API = "https://gamma-api.polymarket.com"
 CLOB_API  = "https://clob.polymarket.com"
 
-# 全局状态
-state = {
-    "alerts": [],          # 告警列表
-    "status": "starting",  # 监控状态
-    "markets_count": 0,
-    "last_checked": None,
-    "total_checked": 0,
-}
-state_lock = threading.Lock()
-
 # ─────────────────────────────────────────
-# 监控逻辑
+# HELPERS
 # ─────────────────────────────────────────
 def ts_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 def matches_keywords(title):
     t = title.lower()
-    return any(kw in t for kw in CONFIG["keywords"])
+    with config_lock:
+        kws = config["keywords"]
+    return any(kw in t for kw in kws)
 
+def categorize(title):
+    t = title.lower()
+    if any(k in t for k in ["gold","silver","oil","crude","brent","wti","natural gas",
+                              "copper","wheat","corn","soybean","cotton","sugar","coffee",
+                              "cocoa","platinum","palladium"]):
+        return "Commodity"
+    if any(k in t for k in ["s&p","sp500","nasdaq","dow","nikkei","hang seng","ftse",
+                              "dax","stoxx","russell","vix","stock"]):
+        return "Equity"
+    if any(k in t for k in ["bitcoin","btc","ethereum","eth"]):
+        return "Crypto"
+    if any(k in t for k in ["fed rate","interest rate","inflation","cpi","treasury","yield","gdp"]):
+        return "Macro"
+    return "Other"
+
+# ─────────────────────────────────────────
+# MARKET FETCHING
+# ─────────────────────────────────────────
 def fetch_relevant_markets():
     markets = []
     offset, limit = 0, 100
     seen = set()
-    while len(markets) < CONFIG["max_markets"]:
+    with config_lock:
+        max_m = config["max_markets"]
+
+    while len(markets) < max_m:
         try:
             r = requests.get(f"{GAMMA_API}/markets",
                              params={"active": "true", "closed": "false",
@@ -84,54 +119,78 @@ def fetch_relevant_markets():
                         "title": title,
                         "condition_id": cid,
                         "tokens": m.get("tokens", []),
+                        "category": categorize(title),
                     })
         offset += limit
         if len(data) < limit:
             break
     return markets
 
-def fetch_trades(token_id):
+# ─────────────────────────────────────────
+# PRICE FETCHING
+# ─────────────────────────────────────────
+def fetch_orderbook_midpoint(token_id):
+    """Get current mid price from orderbook."""
     try:
-        r = requests.get(f"{CLOB_API}/trades",
-                         params={"token_id": token_id, "limit": 10},
+        r = requests.get(f"{CLOB_API}/book",
+                         params={"token_id": token_id},
                          timeout=10)
         r.raise_for_status()
-        data = r.json()
-        return data.get("data", data) if isinstance(data, dict) else data
+        book = r.json()
+        bids = book.get("bids", [])
+        asks = book.get("asks", [])
+        if bids and asks:
+            best_bid = float(bids[0]["price"])
+            best_ask = float(asks[0]["price"])
+            return (best_bid + best_ask) / 2
+        elif bids:
+            return float(bids[0]["price"])
+        elif asks:
+            return float(asks[0]["price"])
     except Exception:
-        return []
+        pass
+    return None
 
-def add_alert(alert_type, title, outcome, side, usdc, price, size, token_id, extra=""):
+# ─────────────────────────────────────────
+# ALERT
+# ─────────────────────────────────────────
+def add_alert(title, outcome, category, old_price, new_price, pct_change, token_id, window_s):
+    direction = "▲ UP" if pct_change > 0 else "▼ DOWN"
     alert = {
-        "type": alert_type,          # "LARGE_BET" or "SURGE"
         "time": ts_now(),
         "title": title,
         "outcome": outcome,
-        "side": side,
-        "usdc": round(usdc, 2),
-        "price": round(price, 4),
-        "size": round(size, 2),
+        "category": category,
+        "old_price": round(old_price, 4),
+        "new_price": round(new_price, 4),
+        "pct_change": round(pct_change, 2),
+        "direction": direction,
+        "window_minutes": round(window_s / 60, 1),
         "token_id": token_id[:20] + "...",
-        "extra": extra,
     }
     with state_lock:
         state["alerts"].insert(0, alert)
-        if len(state["alerts"]) > CONFIG["max_alerts"]:
-            state["alerts"] = state["alerts"][:CONFIG["max_alerts"]]
+        if len(state["alerts"]) > config["max_alerts"]:
+            state["alerts"] = state["alerts"][:config["max_alerts"]]
 
+# ─────────────────────────────────────────
+# MONITOR LOOP
+# ─────────────────────────────────────────
 def monitor_loop():
-    seen_trade_ids = set()
-    cumulative = defaultdict(list)
-    last_market_refresh = 0
     token_index = {}
+    last_market_refresh = 0
 
     with state_lock:
         state["status"] = "running"
 
     while True:
         now = time.time()
+        with config_lock:
+            poll_interval = config["poll_interval_seconds"]
+            window_s = config["window_seconds"]
+            threshold_pct = config["price_change_threshold_pct"]
 
-        # 每小时刷新市场
+        # Refresh markets every hour
         if now - last_market_refresh > 3600:
             markets = fetch_relevant_markets()
             token_index = {}
@@ -142,96 +201,102 @@ def monitor_loop():
                         token_index[tid] = {
                             "title": m["title"],
                             "outcome": tok.get("outcome", ""),
+                            "category": m["category"],
                         }
             last_market_refresh = now
             with state_lock:
                 state["markets_count"] = len(markets)
+                state["tokens_count"] = len(token_index)
 
         all_tokens = list(token_index.keys())
 
         for token_id in all_tokens:
-            trades = fetch_trades(token_id)
-            for trade in trades:
-                tid = (trade.get("id") or trade.get("tradeId") or
-                       trade.get("transaction_hash", "") + str(trade.get("size", "")))
-                if tid in seen_trade_ids:
-                    continue
-                seen_trade_ids.add(tid)
+            price = fetch_orderbook_midpoint(token_id)
+            if price is None:
+                continue
 
-                try:
-                    size  = float(trade.get("size", 0) or 0)
-                    price = float(trade.get("price", 0) or 0)
-                    usdc  = size * price
-                except Exception:
-                    continue
+            with price_lock:
+                history = price_history[token_id]
+                history.append((now, price))
+                # Keep only prices within window
+                price_history[token_id] = [(t, p) for t, p in history if now - t <= window_s]
+                history = price_history[token_id]
 
-                if usdc <= 0:
-                    continue
+            if len(history) < 2:
+                continue
 
-                info    = token_index.get(token_id, {})
-                title   = info.get("title", "Unknown")
-                outcome = info.get("outcome", "")
-                side    = trade.get("side", trade.get("makerSide", "?")).upper()
+            oldest_price = history[0][1]
+            if oldest_price <= 0:
+                continue
 
-                # 单笔大额
-                if usdc >= CONFIG["alert_threshold_usdc"]:
-                    add_alert("LARGE_BET", title, outcome, side,
-                              usdc, price, size, token_id)
+            pct_change = ((price - oldest_price) / oldest_price) * 100
 
-                # 累计突发
-                window = CONFIG["cumulative_window_seconds"]
-                cumulative[token_id].append((now, usdc))
-                cumulative[token_id] = [
-                    (t, u) for t, u in cumulative[token_id] if now - t <= window
-                ]
-                total = sum(u for _, u in cumulative[token_id])
-                if (total >= CONFIG["cumulative_threshold_usdc"]
-                        and usdc < CONFIG["alert_threshold_usdc"]):
-                    add_alert("SURGE", title, outcome, side,
-                              usdc, price, size, token_id,
-                              extra=f"累计 ${total:,.0f} / {window}s")
-                    cumulative[token_id] = []
-
-        # 控制 seen 大小
-        if len(seen_trade_ids) > 50_000:
-            seen_trade_ids = set(list(seen_trade_ids)[-10_000:])
+            if abs(pct_change) >= threshold_pct:
+                info = token_index.get(token_id, {})
+                add_alert(
+                    title=info.get("title", "Unknown"),
+                    outcome=info.get("outcome", ""),
+                    category=info.get("category", "Other"),
+                    old_price=oldest_price,
+                    new_price=price,
+                    pct_change=pct_change,
+                    token_id=token_id,
+                    window_s=now - history[0][0],
+                )
+                # Reset history to avoid repeated alerts
+                with price_lock:
+                    price_history[token_id] = [(now, price)]
 
         with state_lock:
             state["last_checked"] = ts_now()
-            state["total_checked"] += len(all_tokens)
 
-        time.sleep(CONFIG["poll_interval_seconds"])
+        time.sleep(poll_interval)
 
 # ─────────────────────────────────────────
-# Flask 路由
+# ROUTES
 # ─────────────────────────────────────────
 @app.route("/")
 def index():
-    return render_template_string(open("templates/index.html").read())
+    with open("templates/index.html") as f:
+        return render_template_string(f.read())
 
 @app.route("/api/alerts")
 def api_alerts():
     with state_lock:
-        return jsonify({
-            "alerts": state["alerts"],
-            "status": state["status"],
-            "markets_count": state["markets_count"],
-            "last_checked": state["last_checked"],
-            "total_checked": state["total_checked"],
-            "thresholds": {
-                "single": CONFIG["alert_threshold_usdc"],
-                "cumulative": CONFIG["cumulative_threshold_usdc"],
-            }
-        })
+        s = dict(state)
+    with config_lock:
+        c = dict(config)
+    return jsonify({"alerts": s["alerts"], "status": s["status"],
+                    "markets_count": s["markets_count"],
+                    "tokens_count": s["tokens_count"],
+                    "last_checked": s["last_checked"],
+                    "uptime_start": s["uptime_start"],
+                    "config": c})
 
-@app.route("/api/config")
-def api_config():
-    return jsonify(CONFIG)
+@app.route("/api/config", methods=["POST"])
+def update_config():
+    from flask import request
+    data = request.get_json(silent=True) or {}
+    with config_lock:
+        if "price_change_threshold_pct" in data:
+            config["price_change_threshold_pct"] = float(data["price_change_threshold_pct"])
+        if "window_seconds" in data:
+            config["window_seconds"] = int(data["window_seconds"])
+        if "poll_interval_seconds" in data:
+            config["poll_interval_seconds"] = max(10, int(data["poll_interval_seconds"]))
+    return jsonify({"ok": True, "config": config})
+
+@app.route("/api/clear", methods=["POST"])
+def clear_alerts():
+    with state_lock:
+        state["alerts"] = []
+    return jsonify({"ok": True})
 
 # ─────────────────────────────────────────
-# 启动
+# START
 # ─────────────────────────────────────────
 if __name__ == "__main__":
     t = threading.Thread(target=monitor_loop, daemon=True)
     t.start()
-    app.run(host="0.0.0.0", port=10000, debug=False)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False)
