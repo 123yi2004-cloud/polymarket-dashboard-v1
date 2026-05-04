@@ -603,8 +603,9 @@ async function fetchData() {
     document.getElementById('totalAlerts').textContent  = d.alerts.length;
     document.getElementById('uptimeStart').textContent  = d.uptime_start  || '—';
 
-    // Sync settings from server
-    if (d.config) {
+    // Only sync settings on first load — never overwrite while user is editing
+    if (d.config && !window._settingsLoaded) {
+      window._settingsLoaded = true;
       document.getElementById('thresholdPct').value = d.config.price_change_threshold_pct;
       document.getElementById('windowMin').value    = Math.round(d.config.window_seconds / 60);
       document.getElementById('pollSec').value      = d.config.poll_interval_seconds;
