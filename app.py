@@ -1,14 +1,14 @@
 """
-Polymarket Price Movement Alert Dashboard - Fixed Version
-- Monitor thread starts correctly with gunicorn
-- Uses Gamma API lastTradePrice (no auth needed)
-- Settings don't auto-reset
+Real-time Price Alert Dashboard
+Data source: yfinance (Yahoo Finance) — free, no API key needed
+Monitors: S&P 500 stocks + major commodities
+Alerts when price moves ±5% (configurable) within a time window
 """
 
 from flask import Flask, jsonify, request, render_template_string
 import threading
-import requests
 import time
+import json
 from datetime import datetime, timezone
 from collections import defaultdict
 import os
@@ -16,44 +16,124 @@ import os
 app = Flask(__name__)
 
 # ─────────────────────────────────────────
+# SYMBOLS
+# ─────────────────────────────────────────
+
+# Major commodities (Yahoo Finance tickers)
+COMMODITIES = {
+    # Energy
+    "CL=F":  "Crude Oil (WTI)",
+    "BZ=F":  "Brent Crude Oil",
+    "NG=F":  "Natural Gas (Henry Hub)",
+    "RB=F":  "RBOB Gasoline",
+    "HO=F":  "Heating Oil",
+    # Precious Metals
+    "GC=F":  "Gold",
+    "SI=F":  "Silver",
+    "PL=F":  "Platinum",
+    "PA=F":  "Palladium",
+    # Base Metals
+    "HG=F":  "Copper",
+    # Grains & Oilseeds
+    "ZC=F":  "Corn",
+    "ZW=F":  "Wheat (Chicago SRW)",
+    "KE=F":  "Wheat (Kansas HRW)",
+    "ZO=F":  "Oats",
+    "ZS=F":  "Soybeans",
+    "ZM=F":  "Soybean Meal",
+    "ZL=F":  "Soybean Oil",
+    # Softs
+    "CC=F":  "Cocoa",
+    "KC=F":  "Coffee",
+    "CT=F":  "Cotton",
+    "SB=F":  "Sugar No.11",
+    # Livestock
+    "LE=F":  "Live Cattle",
+    "GF=F":  "Feeder Cattle",
+    "HE=F":  "Lean Hogs",
+    # Equity Indices
+    "^GSPC": "S&P 500 Index",
+    "^IXIC": "NASDAQ Composite",
+    "^DJI":  "Dow Jones Industrial",
+    "^VIX":  "VIX Volatility Index",
+    "^RUT":  "Russell 2000",
+}
+
+# Full S&P 500 list (all 500 tickers)
+SP500_TICKERS = [
+    "MMM","AOS","ABT","ABBV","ACN","ADBE","AMD","AES","AFL","A","APD","ABNB",
+    "AKAM","ALB","ARE","ALGN","ALLE","LNT","ALL","GOOGL","GOOG","MO","AMZN",
+    "AMCR","AEE","AAL","AEP","AXP","AIG","AMT","AWK","AMP","AME","AMGN","APH",
+    "ADI","ANSS","AON","APA","AAPL","AMAT","APTV","ACGL","ADM","ANET","AJG",
+    "AIZ","T","ATO","ADSK","ADP","AZO","AVB","AVY","AXON","BKR","BALL","BAC",
+    "BK","BBWI","BAX","BDX","BRK-B","BBY","TECH","BIO","BIIB","BLK","BX","BA",
+    "BCR","BMY","AVGO","BR","BRO","BF-B","BLDR","BG","CDNS","CZR","CPT","CPB",
+    "COF","CAH","KMX","CCL","CARR","CTLT","CAT","CBOE","CBRE","CDW","CE","COR",
+    "CNC","CNP","CF","CHRW","CRL","SCHW","CHTR","CVX","CMG","CB","CHD","CI",
+    "CINF","CTAS","CSCO","C","CFG","CLX","CME","CMS","KO","CTSH","CL","CMCSA",
+    "CMA","CAG","COP","ED","STZ","CEG","COO","CPRT","GLW","CTVA","CSGP","COST",
+    "CTRA","CCI","CSX","CMI","CVS","DHR","DRI","DVA","DAY","DECK","DE","DAL",
+    "DVN","DXCM","FANG","DLR","DFS","DG","DLTR","D","DPZ","DOV","DOW","DHI",
+    "DTE","DUK","DD","EMN","ETN","EBAY","ECL","EIX","EW","EA","ELV","LLY","EMR",
+    "ENPH","ETR","EOG","EPAM","EQT","EFX","EQIX","EQR","ESS","EL","ETSY","EG",
+    "EVRST","ES","EXC","EXPE","EXPD","EXR","XOM","FFIV","FDS","FICO","FAST",
+    "FRT","FDX","FIS","FITB","FSLR","FE","FI","FLT","FMC","F","FTNT","FTV",
+    "FOXA","FOX","BEN","FCX","GRMN","IT","GE","GEHC","GEV","GEN","GNRC","GD",
+    "GIS","GM","GPC","GILD","GPN","GL","GDDY","GS","HAL","HIG","HAS","HCA",
+    "DOC","HSIC","HSY","HES","HPE","HLT","HOLX","HD","HON","HRL","HST","HWM",
+    "HPQ","HUBB","HUM","HBAN","HII","IBM","IEX","IDXX","ITW","INCY","IR","PODD",
+    "INTC","ICE","IFF","IP","IPG","INTU","ISRG","IVZ","INVH","IQV","IRM","JBHT",
+    "JBL","JKHY","J","JNJ","JCI","JPM","JNPR","K","KVUE","KDP","KEY","KEYS",
+    "KMB","KIM","KMI","KLAC","KHC","KR","LHX","LH","LRCX","LW","LVS","LDOS",
+    "LEN","LIN","LYV","LKQ","LMT","L","LOW","LULU","LYB","MTB","MRO","MPC",
+    "MKTX","MAR","MMC","MLM","MAS","MA","MTCH","MKC","MCD","MCK","MDT","MRK",
+    "META","MET","MTD","MGM","MCHP","MU","MSFT","MAA","MRNA","MHK","MOH","TAP",
+    "MDLZ","MPWR","MNST","MCO","MS","MOS","MSI","MSCI","NDAQ","NTAP","NFLX",
+    "NEM","NWSA","NWS","NEE","NKE","NI","NDSN","NSC","NTRS","NOC","NCLH","NRG",
+    "NUE","NVDA","NVR","NXPI","ORLY","OXY","ODFL","OMC","ON","OKE","ORCL","OTIS",
+    "PCAR","PKG","PLTR","PH","PAYX","PAYC","PYPL","PNR","PEP","PFE","PCG","PM",
+    "PSX","PNW","PXD","PNC","POOL","PPG","PPL","PFG","PG","PGR","PLD","PRU",
+    "PEG","PTC","PSA","PHM","QRVO","PWR","QCOM","DGX","RL","RJF","RTX","O",
+    "REG","REGN","RF","RSG","RMD","RVTY","ROK","ROL","ROP","ROST","RCL","SPGI",
+    "CRM","SBAC","SLB","STX","SRE","NOW","SHW","SPG","SWKS","SJM","SW","SNA",
+    "SO","LUV","SWK","SBUX","STT","STLD","STE","SYK","SMCI","SYF","SNPS","SYY",
+    "TMUS","TROW","TTWO","TPR","TRGP","TGT","TEL","TDY","TFX","TER","TSLA",
+    "TXN","TXT","TMO","TJX","TSCO","TT","TDG","TRV","TRMB","TFC","TYL","TSN",
+    "USB","UBER","UDR","ULTA","UNP","UAL","UPS","URI","UNH","UHS","VLO","VTR",
+    "VLTO","VRSN","VRSK","VZ","VRTX","VTRS","VICI","V","VST","VMC","WRB","GWW",
+    "WAB","WBA","WMT","DIS","WBD","WM","WAT","WEC","WFC","WELL","WST","WDC",
+    "WRK","WY","WMB","WTW","WYNN","XEL","XYL","YUM","ZBRA","ZBH","ZTS",
+]
+
+ALL_SYMBOLS = list(COMMODITIES.keys()) + SP500_TICKERS
+
+# ─────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────
 config = {
     "price_change_threshold_pct": 5.0,
-    "window_seconds": 300,
-    "poll_interval_seconds": 30,
-    "max_alerts": 100,
-    "max_markets": 200,
-    "keywords": [
-        "s&p", "sp500", "nasdaq", "dow jones", "nikkei", "hang seng",
-        "ftse", "dax", "stoxx", "russell", "vix", "stock market",
-        "bull", "bear", "recession", "crash", "rally",
-        "gold", "silver", "oil", "crude", "brent", "wti",
-        "natural gas", "copper", "wheat", "corn", "soybean",
-        "cotton", "sugar", "coffee", "cocoa", "platinum", "palladium",
-        "fed rate", "interest rate", "inflation", "cpi", "pce",
-        "treasury", "yield", "gdp",
-        "bitcoin", "btc", "ethereum", "eth",
-    ],
+    "window_seconds": 300,        # 5 min window
+    "poll_interval_seconds": 60,  # fetch every 60s
+    "max_alerts": 200,
+    "monitor_commodities": True,
+    "monitor_sp500": True,
 }
 config_lock = threading.Lock()
 
 state = {
     "alerts": [],
     "status": "starting",
-    "markets_count": 0,
-    "tokens_count": 0,
+    "symbols_tracked": 0,
     "last_checked": None,
     "uptime_start": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
     "errors": [],
-    "prices_fetched": 0,
+    "scan_count": 0,
+    "yfinance_ok": False,
 }
 state_lock = threading.Lock()
 
-price_history = defaultdict(list)
+price_history = defaultdict(list)   # { ticker: [(ts, price), ...] }
 price_lock = threading.Lock()
-
-GAMMA_API = "https://gamma-api.polymarket.com"
 
 # ─────────────────────────────────────────
 # HELPERS
@@ -67,207 +147,182 @@ def log_error(msg):
         state["errors"] = state["errors"][:20]
     print(f"ERROR: {msg}", flush=True)
 
-def matches_keywords(title):
-    t = title.lower()
-    with config_lock:
-        kws = config["keywords"]
-    return any(kw in t for kw in kws)
+def get_display_name(ticker):
+    return COMMODITIES.get(ticker, ticker)
 
-def categorize(title):
-    t = title.lower()
-    if any(k in t for k in ["gold","silver","oil","crude","brent","wti","natural gas",
-                              "copper","wheat","corn","soybean","cotton","sugar","coffee",
-                              "cocoa","platinum","palladium"]):
+def categorize(ticker):
+    if ticker in ("^GSPC","^IXIC","^DJI","^VIX","^RUT"):
+        return "Index"
+    if ticker in COMMODITIES:
+        if ticker in ("CL=F","BZ=F","NG=F","RB=F","HO=F"):
+            return "Energy"
+        if ticker in ("GC=F","SI=F","PL=F","PA=F","HG=F"):
+            return "Metals"
+        if ticker in ("ZC=F","ZW=F","KE=F","ZO=F","ZS=F","ZM=F","ZL=F"):
+            return "Grains"
+        if ticker in ("CC=F","KC=F","CT=F","SB=F"):
+            return "Softs"
+        if ticker in ("LE=F","GF=F","HE=F"):
+            return "Livestock"
         return "Commodity"
-    if any(k in t for k in ["s&p","sp500","nasdaq","dow","nikkei","hang seng","ftse",
-                              "dax","stoxx","russell","vix","stock"]):
-        return "Equity"
-    if any(k in t for k in ["bitcoin","btc","ethereum","eth"]):
-        return "Crypto"
-    if any(k in t for k in ["fed rate","interest rate","inflation","cpi","treasury","yield","gdp"]):
-        return "Macro"
-    return "Other"
+    return "Equity"
 
 # ─────────────────────────────────────────
-# FETCH MARKETS + PRICES from Gamma API
-# Gamma API returns lastTradePrice — no auth needed
+# FETCH PRICES via yfinance
+# Batches 100 tickers at a time for efficiency
 # ─────────────────────────────────────────
-def fetch_markets_with_prices():
-    """Returns list of {token_id, title, outcome, category, price}"""
-    results = []
-    offset, limit = 0, 100
-    seen = set()
-    with config_lock:
-        max_m = config["max_markets"]
-
-    print(f"[{ts_now()}] Fetching markets...", flush=True)
-
-    while len(results) < max_m:
+def fetch_prices_batch(tickers):
+    """Returns {ticker: price} dict."""
+    import yfinance as yf
+    results = {}
+    # yfinance download accepts space-separated tickers
+    chunk_size = 100
+    for i in range(0, len(tickers), chunk_size):
+        chunk = tickers[i:i+chunk_size]
         try:
-            r = requests.get(
-                f"{GAMMA_API}/markets",
-                params={"active": "true", "closed": "false",
-                        "limit": limit, "offset": offset},
-                timeout=15,
+            data = yf.download(
+                " ".join(chunk),
+                period="1d",
+                interval="1m",
+                progress=False,
+                auto_adjust=True,
+                threads=True,
             )
-            r.raise_for_status()
-            data = r.json()
+            if data.empty:
+                continue
+            # Get latest Close price for each ticker
+            close = data["Close"]
+            if len(chunk) == 1:
+                # Single ticker returns a Series
+                price = float(close.dropna().iloc[-1])
+                results[chunk[0]] = price
+            else:
+                for ticker in chunk:
+                    try:
+                        col = close[ticker].dropna()
+                        if not col.empty:
+                            results[ticker] = float(col.iloc[-1])
+                    except Exception:
+                        pass
         except Exception as e:
-            log_error(f"Gamma API failed: {e}")
-            break
-
-        if not data:
-            break
-
-        for m in data:
-            title = m.get("question") or m.get("title") or ""
-            if not matches_keywords(title):
-                continue
-
-            cid = m.get("conditionId") or m.get("condition_id")
-            if not cid or cid in seen:
-                continue
-            seen.add(cid)
-
-            category = categorize(title)
-            tokens = m.get("tokens", [])
-
-            for tok in tokens:
-                tid = tok.get("token_id") or tok.get("tokenId")
-                if not tid:
-                    continue
-
-                # Gamma API provides lastTradePrice directly — no auth needed
-                price = None
-                for field in ["lastTradePrice", "price", "midpoint"]:
-                    raw = tok.get(field) or m.get(field)
-                    if raw is not None:
-                        try:
-                            price = float(raw)
-                            break
-                        except (ValueError, TypeError):
-                            pass
-
-                results.append({
-                    "token_id": tid,
-                    "title":    title,
-                    "outcome":  tok.get("outcome", ""),
-                    "category": category,
-                    "price":    price,
-                })
-
-        offset += limit
-        if len(data) < limit:
-            break
-
-    valid = [r for r in results if r["price"] is not None and 0 < r["price"] < 1]
-    print(f"[{ts_now()}] Found {len(results)} tokens, {len(valid)} with valid prices", flush=True)
+            log_error(f"yfinance batch {i//chunk_size}: {e}")
     return results
 
 # ─────────────────────────────────────────
-# ALERT
+# SCAN
 # ─────────────────────────────────────────
-def add_alert(title, outcome, category, old_price, new_price, pct_change, token_id, window_s):
-    direction = "UP" if pct_change > 0 else "DOWN"
-    alert = {
-        "time":           ts_now(),
-        "title":          title,
-        "outcome":        outcome,
-        "category":       category,
-        "old_price":      round(old_price, 4),
-        "new_price":      round(new_price, 4),
-        "pct_change":     round(pct_change, 2),
-        "direction":      direction,
-        "window_minutes": round(window_s / 60, 1),
-        "token_id":       token_id[:20] + "...",
-    }
-    print(f"[ALERT] {title} | {pct_change:+.2f}% | {old_price:.4f} -> {new_price:.4f}", flush=True)
+def scan():
+    with config_lock:
+        window_s      = config["window_seconds"]
+        threshold_pct = config["price_change_threshold_pct"]
+        do_commodities= config["monitor_commodities"]
+        do_sp500      = config["monitor_sp500"]
+
+    tickers = []
+    if do_commodities:
+        tickers += list(COMMODITIES.keys())
+    if do_sp500:
+        tickers += SP500_TICKERS
+
+    if not tickers:
+        return
+
+    print(f"[{ts_now()}] Fetching {len(tickers)} symbols...", flush=True)
+    prices = fetch_prices_batch(tickers)
+    print(f"[{ts_now()}] Got prices for {len(prices)} symbols.", flush=True)
+
+    if prices:
+        with state_lock:
+            state["yfinance_ok"] = True
+
+    now = time.time()
+    alerts_added = 0
+
+    for ticker, price in prices.items():
+        if price is None or price <= 0:
+            continue
+
+        with price_lock:
+            price_history[ticker].append((now, price))
+            price_history[ticker] = [
+                (t, p) for t, p in price_history[ticker] if now - t <= window_s
+            ]
+            history = price_history[ticker]
+
+        if len(history) < 2:
+            continue
+
+        oldest_ts, oldest_price = history[0]
+        if oldest_price <= 0:
+            continue
+
+        pct_change = ((price - oldest_price) / oldest_price) * 100
+
+        if abs(pct_change) >= threshold_pct:
+            name      = get_display_name(ticker)
+            category  = categorize(ticker)
+            direction = "UP" if pct_change > 0 else "DOWN"
+            alert = {
+                "time":           ts_now(),
+                "ticker":         ticker,
+                "name":           name,
+                "category":       category,
+                "old_price":      round(oldest_price, 4),
+                "new_price":      round(price, 4),
+                "pct_change":     round(pct_change, 2),
+                "direction":      direction,
+                "window_minutes": round((now - oldest_ts) / 60, 1),
+            }
+            print(f"[ALERT] {ticker} ({name}): {pct_change:+.2f}%  ${oldest_price:.4f} → ${price:.4f}", flush=True)
+            with state_lock:
+                state["alerts"].insert(0, alert)
+                if len(state["alerts"]) > config["max_alerts"]:
+                    state["alerts"] = state["alerts"][:config["max_alerts"]]
+            with price_lock:
+                price_history[ticker] = [(now, price)]
+            alerts_added += 1
+
     with state_lock:
-        state["alerts"].insert(0, alert)
-        if len(state["alerts"]) > config["max_alerts"]:
-            state["alerts"] = state["alerts"][:config["max_alerts"]]
+        state["symbols_tracked"] = len(prices)
+        state["last_checked"]    = ts_now()
+        state["scan_count"]     += 1
+
+    print(f"[{ts_now()}] Scan complete. {alerts_added} new alerts.", flush=True)
 
 # ─────────────────────────────────────────
 # MONITOR LOOP
 # ─────────────────────────────────────────
 def monitor_loop():
-    print(f"[{ts_now()}] Monitor thread started", flush=True)
+    # Install yfinance if not present
+    try:
+        import yfinance
+        print(f"[{ts_now()}] yfinance ready.", flush=True)
+    except ImportError:
+        import subprocess, sys
+        print(f"[{ts_now()}] Installing yfinance...", flush=True)
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "yfinance", "-q"])
+        print(f"[{ts_now()}] yfinance installed.", flush=True)
+
     with state_lock:
         state["status"] = "running"
 
+    print(f"[{ts_now()}] Monitor started. Tracking {len(ALL_SYMBOLS)} symbols.", flush=True)
+
     while True:
         try:
-            now = time.time()
-            with config_lock:
-                poll_interval = config["poll_interval_seconds"]
-                window_s      = config["window_seconds"]
-                threshold_pct = config["price_change_threshold_pct"]
-
-            # Fetch all markets + their current prices
-            tokens = fetch_markets_with_prices()
-
-            with state_lock:
-                state["markets_count"] = len(set(t["title"] for t in tokens))
-                state["tokens_count"]  = len(tokens)
-
-            fetched = 0
-            for tok in tokens:
-                token_id = tok["token_id"]
-                price    = tok["price"]
-                if price is None:
-                    continue
-
-                fetched += 1
-                now2 = time.time()
-
-                with price_lock:
-                    price_history[token_id].append((now2, price))
-                    price_history[token_id] = [
-                        (t, p) for t, p in price_history[token_id]
-                        if now2 - t <= window_s
-                    ]
-                    history = price_history[token_id]
-
-                if len(history) < 2:
-                    continue
-
-                oldest_ts, oldest_price = history[0]
-                if oldest_price <= 0:
-                    continue
-
-                pct_change = ((price - oldest_price) / oldest_price) * 100
-
-                if abs(pct_change) >= threshold_pct:
-                    add_alert(
-                        title=tok["title"],
-                        outcome=tok["outcome"],
-                        category=tok["category"],
-                        old_price=oldest_price,
-                        new_price=price,
-                        pct_change=pct_change,
-                        token_id=token_id,
-                        window_s=now2 - oldest_ts,
-                    )
-                    with price_lock:
-                        price_history[token_id] = [(now2, price)]
-
-            with state_lock:
-                state["last_checked"]   = ts_now()
-                state["prices_fetched"] += fetched
-
-            print(f"[{ts_now()}] Scanned {fetched} tokens with prices. Sleeping {poll_interval}s.", flush=True)
-
+            scan()
         except Exception as e:
-            log_error(f"Monitor loop error: {e}")
+            log_error(f"Scan error: {e}")
 
-        time.sleep(poll_interval)
+        with config_lock:
+            sleep_time = config["poll_interval_seconds"]
 
-# ─────────────────────────────────────────
-# START THREAD — runs at import time so
-# gunicorn picks it up correctly
-# ─────────────────────────────────────────
-_monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
-_monitor_thread.start()
+        print(f"[{ts_now()}] Sleeping {sleep_time}s.", flush=True)
+        time.sleep(sleep_time)
+
+# Start at import time so gunicorn picks it up
+_thread = threading.Thread(target=monitor_loop, daemon=True)
+_thread.start()
 
 # ─────────────────────────────────────────
 # ROUTES
@@ -280,21 +335,11 @@ def index():
 @app.route("/api/alerts")
 def api_alerts():
     with state_lock:
-        s = {k: v for k, v in state.items() if k != "alerts"}
-        alerts = list(state["alerts"])
+        alerts   = list(state["alerts"])
+        s        = {k: v for k, v in state.items() if k != "alerts"}
     with config_lock:
         c = dict(config)
-    return jsonify({
-        "alerts":         alerts,
-        "status":         s["status"],
-        "markets_count":  s["markets_count"],
-        "tokens_count":   s["tokens_count"],
-        "last_checked":   s["last_checked"],
-        "uptime_start":   s["uptime_start"],
-        "prices_fetched": s["prices_fetched"],
-        "errors":         s["errors"][:5],
-        "config":         c,
-    })
+    return jsonify({**s, "alerts": alerts, "config": c})
 
 @app.route("/api/config", methods=["POST"])
 def update_config():
@@ -305,8 +350,12 @@ def update_config():
         if "window_seconds" in data:
             config["window_seconds"] = int(data["window_seconds"])
         if "poll_interval_seconds" in data:
-            config["poll_interval_seconds"] = max(10, int(data["poll_interval_seconds"]))
-    print(f"[{ts_now()}] Config updated: {config['price_change_threshold_pct']}% / {config['window_seconds']}s", flush=True)
+            config["poll_interval_seconds"] = max(30, int(data["poll_interval_seconds"]))
+        if "monitor_commodities" in data:
+            config["monitor_commodities"] = bool(data["monitor_commodities"])
+        if "monitor_sp500" in data:
+            config["monitor_sp500"] = bool(data["monitor_sp500"])
+    print(f"[{ts_now()}] Config updated: {config}", flush=True)
     return jsonify({"ok": True, "config": config})
 
 @app.route("/api/clear", methods=["POST"])
@@ -317,17 +366,28 @@ def clear_alerts():
 
 @app.route("/api/debug")
 def debug():
-    sample = {}
+    samples = []
     with price_lock:
-        for tid, hist in list(price_history.items())[:5]:
+        for ticker, hist in list(price_history.items())[:10]:
             if hist:
-                sample[tid[:20]+"..."] = {
-                    "latest_price": hist[-1][1],
+                samples.append({
+                    "ticker":       ticker,
+                    "name":         get_display_name(ticker),
+                    "latest_price": round(hist[-1][1], 4),
                     "data_points":  len(hist),
-                }
+                })
     with state_lock:
         errs = list(state["errors"])
-    return jsonify({"price_samples": sample, "recent_errors": errs})
+        sc   = state["scan_count"]
+        sym  = state["symbols_tracked"]
+        ok   = state["yfinance_ok"]
+    return jsonify({
+        "yfinance_ok":     ok,
+        "scan_count":      sc,
+        "symbols_tracked": sym,
+        "price_samples":   samples,
+        "recent_errors":   errs,
+    })
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
