@@ -3,170 +3,199 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Price Alert Dashboard</title>
+<title>Price Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg:     #080c14;
-    --bg2:    #0c1220;
-    --bg3:    #111827;
-    --border: #1c2a40;
-    --border2:#243450;
-    --text:   #d0ddf5;
-    --muted:  #4a607a;
-    --muted2: #2a3d58;
-    --accent: #3b82f6;
-    --up:     #10b981;
-    --down:   #ef4444;
-    --mono:   'Space Mono', monospace;
-    --sans:   'DM Sans', sans-serif;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
-  body::before {
-    content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
-    background-image: linear-gradient(rgba(59,130,246,.03) 1px,transparent 1px),
-                      linear-gradient(90deg,rgba(59,130,246,.03) 1px,transparent 1px);
-    background-size: 40px 40px;
-  }
+:root {
+  --bg:      #080c14;
+  --bg2:     #0c1220;
+  --bg3:     #111827;
+  --border:  #1c2a40;
+  --border2: #243450;
+  --text:    #d0ddf5;
+  --muted:   #4a607a;
+  --muted2:  #2a3d58;
+  --accent:  #3b82f6;
+  --up:      #10b981;
+  --down:    #ef4444;
+  --mono:    'Space Mono', monospace;
+  --sans:    'DM Sans', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; font-size: 14px; }
 
-  /* HEADER */
-  header {
-    position:sticky; top:0; z-index:100;
-    background:rgba(8,12,20,.95); backdrop-filter:blur(12px);
-    border-bottom:1px solid var(--border);
-    padding:0 32px; height:60px;
-    display:flex; align-items:center; justify-content:space-between;
-  }
-  .brand { display:flex; align-items:center; gap:12px; }
-  .brand-icon { width:32px; height:32px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; }
-  .brand-name { font-family:var(--mono); font-size:13px; font-weight:700; color:#fff; }
-  .brand-sub  { font-size:11px; color:var(--muted); margin-top:1px; }
-  .live-pill  {
-    display:flex; align-items:center; gap:6px;
-    background:rgba(16,185,129,.1); border:1px solid rgba(16,185,129,.25);
-    border-radius:20px; padding:4px 12px; font-size:11px; font-weight:700;
-    color:var(--up); font-family:var(--mono);
-  }
-  .live-dot { width:6px; height:6px; border-radius:50%; background:var(--up); animation:blink 1.5s infinite; }
-  .live-dot.offline { background:var(--down); animation:none; }
-  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+/* ── HEADER ── */
+header {
+  position: sticky; top: 0; z-index: 200;
+  background: rgba(8,12,20,.96); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  height: 56px; padding: 0 24px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-icon { width: 30px; height: 30px; background: var(--accent); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+.brand-name { font-family: var(--mono); font-size: 13px; font-weight: 700; color: #fff; }
+.brand-sub  { font-size: 11px; color: var(--muted); }
+.header-right { display: flex; align-items: center; gap: 16px; }
+.live-pill { display: flex; align-items: center; gap: 6px; background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.25); border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 700; color: var(--up); font-family: var(--mono); }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--up); animation: blink 1.5s infinite; }
+.live-dot.off { background: var(--down); animation: none; }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:.2} }
 
-  /* STATUS BAR */
-  .statusbar {
-    background:var(--bg2); border-bottom:1px solid var(--border);
-    padding:10px 32px; display:flex; gap:28px; font-family:var(--mono); font-size:11px; flex-wrap:wrap;
-  }
-  .stat { display:flex; gap:8px; align-items:center; }
-  .stat-k { color:var(--muted); }
-  .stat-v { color:var(--text); font-weight:700; }
-  .stat-v.green { color:var(--up); }
-  .stat-v.red   { color:var(--down); }
+/* ── TABS ── */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: var(--bg2); padding: 0 24px; }
+.tab {
+  padding: 12px 20px; font-size: 13px; font-weight: 600; cursor: pointer;
+  color: var(--muted); border-bottom: 2px solid transparent;
+  transition: all .15s; user-select: none;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-badge { background: var(--down); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-left: 6px; font-family: var(--mono); }
 
-  /* LAYOUT */
-  .layout { position:relative; z-index:1; display:grid; grid-template-columns:280px 1fr; min-height:calc(100vh - 100px); }
+/* ── STATUS BAR ── */
+.statusbar {
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  padding: 8px 24px; display: flex; gap: 24px; font-family: var(--mono); font-size: 11px; flex-wrap: wrap;
+}
+.stat { display: flex; gap: 7px; }
+.stat-k { color: var(--muted); }
+.stat-v { color: var(--text); font-weight: 700; }
+.stat-v.green { color: var(--up); }
 
-  /* SIDEBAR */
-  .sidebar { background:var(--bg2); border-right:1px solid var(--border); padding:20px 16px; display:flex; flex-direction:column; gap:20px; }
-  .s-title { font-family:var(--mono); font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:1.5px; margin-bottom:10px; }
+/* ── LAYOUT ── */
+.page { display: none; }
+.page.active { display: block; }
 
-  .field { margin-bottom:14px; }
-  .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; }
-  .field input[type=number] {
-    width:100%; background:var(--bg3); border:1px solid var(--border2);
-    border-radius:8px; padding:8px 10px; color:var(--text);
-    font-family:var(--mono); font-size:13px; outline:none; transition:border-color .15s;
-  }
-  .field input[type=number]:focus { border-color:var(--accent); }
-  .field .hint { font-size:11px; color:var(--muted2); margin-top:3px; }
+/* ════════════════════════════════
+   PAGE 1 — PRICES TABLE
+════════════════════════════════ */
+.prices-page { padding: 20px 24px; }
 
-  /* Toggle switch */
-  .toggle-row { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); }
-  .toggle-label { font-size:12px; color:var(--text); }
-  .toggle { position:relative; width:36px; height:20px; }
-  .toggle input { opacity:0; width:0; height:0; }
-  .slider { position:absolute; inset:0; background:var(--muted2); border-radius:20px; cursor:pointer; transition:.2s; }
-  .slider:before { content:''; position:absolute; height:14px; width:14px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:.2s; }
-  input:checked + .slider { background:var(--accent); }
-  input:checked + .slider:before { transform:translateX(16px); }
+.toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+.search-box {
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px;
+  padding: 7px 12px; color: var(--text); font-family: var(--sans); font-size: 13px;
+  outline: none; width: 220px; transition: border-color .15s;
+}
+.search-box:focus { border-color: var(--accent); }
+.cat-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.cat-pill {
+  padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600;
+  cursor: pointer; border: 1px solid var(--border); color: var(--muted);
+  transition: all .15s; white-space: nowrap;
+}
+.cat-pill:hover { border-color: var(--border2); color: var(--text); }
+.cat-pill.active { border-color: var(--accent); color: var(--accent); background: rgba(59,130,246,.08); }
 
-  .btn { width:100%; padding:9px; border-radius:8px; border:none; font-family:var(--mono); font-size:12px; font-weight:700; cursor:pointer; transition:all .15s; letter-spacing:.5px; }
-  .btn-primary { background:var(--accent); color:#fff; }
-  .btn-primary:hover { background:#1d4ed8; }
-  .btn-ghost { background:transparent; border:1px solid var(--border2); color:var(--muted); margin-top:6px; }
-  .btn-ghost:hover { border-color:var(--down); color:var(--down); }
-  .save-msg { font-size:11px; color:var(--up); text-align:center; margin-top:6px; opacity:0; transition:opacity .3s; }
-  .save-msg.show { opacity:1; }
+/* Table */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  padding: 10px 12px; text-align: left; font-family: var(--mono);
+  font-size: 10px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .8px;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+  cursor: pointer; user-select: none;
+}
+thead th:hover { color: var(--text); }
+thead th.sorted { color: var(--accent); }
+tbody tr { border-bottom: 1px solid rgba(28,42,64,.5); transition: background .1s; }
+tbody tr:hover { background: var(--bg2); }
+td { padding: 10px 12px; white-space: nowrap; }
+.td-ticker { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--accent); }
+.td-name   { color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.td-cat    { }
+.td-price  { font-family: var(--mono); font-weight: 700; color: var(--text); text-align: right; }
+.td-chg    { font-family: var(--mono); font-weight: 700; text-align: right; }
+.td-chg.up   { color: var(--up); }
+.td-chg.down { color: var(--down); }
+.td-chg.flat { color: var(--muted); }
+.td-updated { color: var(--muted2); font-size: 11px; font-family: var(--mono); }
 
-  /* Filters */
-  .filters { display:flex; flex-direction:column; gap:5px; }
-  .filter-btn {
-    background:transparent; border:1px solid var(--border); border-radius:7px;
-    padding:7px 10px; color:var(--muted); font-size:12px; cursor:pointer;
-    text-align:left; transition:all .15s; display:flex; align-items:center; justify-content:space-between;
-  }
-  .filter-btn:hover { border-color:var(--border2); color:var(--text); }
-  .filter-btn.active { background:rgba(59,130,246,.1); border-color:var(--accent); color:var(--accent); }
-  .filter-count { background:var(--bg3); border-radius:10px; padding:1px 7px; font-family:var(--mono); font-size:10px; }
+.cat-label { font-size: 11px; padding: 2px 7px; border-radius: 5px; font-weight: 600; }
+.Energy    { background: rgba(239,68,68,.12);   color: #f87171; }
+.Metals    { background: rgba(245,158,11,.12);  color: #fbbf24; }
+.Grains    { background: rgba(132,204,22,.12);  color: #a3e635; }
+.Softs     { background: rgba(168,85,247,.12);  color: #c084fc; }
+.Livestock { background: rgba(251,146,60,.12);  color: #fb923c; }
+.Indices   { background: rgba(16,185,129,.12);  color: #34d399; }
+.Equity    { background: rgba(59,130,246,.12);  color: #60a5fa; }
 
-  /* MAIN */
-  .main { padding:24px 28px; overflow-y:auto; }
-  .panel-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
-  .panel-title { font-family:var(--mono); font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:1px; display:flex; align-items:center; gap:10px; }
-  .panel-count { background:rgba(59,130,246,.15); color:var(--accent); font-size:11px; padding:2px 8px; border-radius:10px; }
+.alert-row { background: rgba(239,68,68,.04) !important; }
+.alert-row td { border-left: 2px solid transparent; }
+.alert-row td:first-child { border-left-color: var(--down); }
+.alert-row.up-row td:first-child { border-left-color: var(--up); }
 
-  /* Alert cards */
-  .alerts { display:flex; flex-direction:column; gap:10px; }
-  .alert-card {
-    background:var(--bg2); border:1px solid var(--border); border-radius:12px;
-    padding:14px 16px; border-left:3px solid var(--border);
-    animation:slideDown .25s ease; transition:transform .15s;
-  }
-  .alert-card:hover { transform:translateX(3px); }
-  .alert-card.up   { border-left-color:var(--up); }
-  .alert-card.down { border-left-color:var(--down); }
-  @keyframes slideDown { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+.no-data { text-align: center; padding: 60px; color: var(--muted2); font-size: 14px; }
 
-  .card-top { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px; gap:12px; }
-  .card-names { flex:1; min-width:0; }
-  .card-name   { font-size:14px; font-weight:600; color:#e8f0ff; line-height:1.3; }
-  .card-ticker { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:2px; }
-  .pct-badge { font-family:var(--mono); font-size:20px; font-weight:700; white-space:nowrap; flex-shrink:0; }
-  .pct-badge.up   { color:var(--up); }
-  .pct-badge.down { color:var(--down); }
+/* ════════════════════════════════
+   PAGE 2 — ALERTS BY SECTOR
+════════════════════════════════ */
+.alerts-page { padding: 20px 24px; }
+.alerts-header { margin-bottom: 20px; }
+.alerts-title { font-family: var(--mono); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+.alerts-sub { font-size: 13px; color: var(--muted); }
 
-  .card-meta { display:flex; gap:18px; flex-wrap:wrap; font-size:12px; }
-  .meta { display:flex; flex-direction:column; gap:2px; }
-  .meta-k { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
-  .meta-v { color:var(--text); font-family:var(--mono); font-size:12px; }
-  .cat-badge { font-size:11px; padding:2px 8px; border-radius:6px; font-family:var(--sans); font-weight:600; }
-  .cat-Energy    { background:rgba(239,68,68,.15);   color:#f87171; }
-  .cat-Metals    { background:rgba(245,158,11,.15);  color:#fbbf24; }
-  .cat-Grains    { background:rgba(132,204,22,.15);  color:#a3e635; }
-  .cat-Softs     { background:rgba(168,85,247,.15);  color:#c084fc; }
-  .cat-Livestock { background:rgba(251,146,60,.15);  color:#fb923c; }
-  .cat-Index     { background:rgba(16,185,129,.15);  color:#34d399; }
-  .cat-Equity    { background:rgba(59,130,246,.15);  color:#60a5fa; }
-  .cat-Commodity { background:rgba(245,158,11,.15);  color:#fbbf24; }
-  .cat-Other     { background:rgba(100,116,139,.15); color:#94a3b8; }
+/* Sector cards */
+.sectors-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.sector-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  cursor: pointer; transition: border-color .15s, transform .15s;
+}
+.sector-card:hover { border-color: var(--border2); transform: translateY(-2px); }
+.sector-header {
+  padding: 14px 16px; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+.sector-name { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.sector-count { font-family: var(--mono); font-size: 12px; background: var(--bg3); padding: 2px 8px; border-radius: 8px; color: var(--muted); }
+.sector-body { padding: 0; }
 
-  .card-time { font-size:10px; color:var(--muted2); font-family:var(--mono); margin-top:10px; }
+/* Alert rows inside sector */
+.alert-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; border-bottom: 1px solid rgba(28,42,64,.4);
+  transition: background .1s;
+}
+.alert-item:last-child { border-bottom: none; }
+.alert-item:hover { background: rgba(255,255,255,.02); }
+.ai-left { flex: 1; min-width: 0; }
+.ai-ticker { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--accent); }
+.ai-name   { font-size: 12px; color: var(--muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-right  { text-align: right; flex-shrink: 0; margin-left: 12px; }
+.ai-price  { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--text); }
+.ai-pct    { font-family: var(--mono); font-size: 14px; font-weight: 700; }
+.ai-pct.up   { color: var(--up); }
+.ai-pct.down { color: var(--down); }
 
-  /* Empty */
-  .empty { text-align:center; padding:80px 20px; color:var(--muted2); }
-  .empty-icon { font-size:40px; margin-bottom:16px; opacity:.4; }
-  .empty-title { font-size:16px; font-weight:600; color:var(--muted); margin-bottom:8px; }
-  .empty-sub   { font-size:13px; line-height:1.7; }
+.no-alerts { text-align: center; padding: 60px 24px; color: var(--muted2); }
+.no-alerts-icon  { font-size: 36px; margin-bottom: 12px; opacity: .4; }
+.no-alerts-title { font-size: 16px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+.no-alerts-sub   { font-size: 13px; line-height: 1.6; }
 
-  /* Loading bar */
-  .loading-bar { height:2px; background:var(--border); border-radius:2px; overflow:hidden; margin-bottom:16px; }
-  .loading-bar-inner { height:100%; background:var(--accent); border-radius:2px; width:0%; transition:width .5s; }
+/* Settings panel */
+.settings-bar {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 18px; margin-bottom: 20px;
+  display: flex; gap: 24px; align-items: flex-end; flex-wrap: wrap;
+}
+.sf { display: flex; flex-direction: column; gap: 5px; }
+.sf label { font-size: 11px; color: var(--muted); font-family: var(--mono); text-transform: uppercase; letter-spacing: .5px; }
+.sf input { background: var(--bg3); border: 1px solid var(--border2); border-radius: 7px; padding: 6px 10px; color: var(--text); font-family: var(--mono); font-size: 13px; outline: none; width: 120px; }
+.sf input:focus { border-color: var(--accent); }
+.btn-apply { background: var(--accent); color: #fff; border: none; border-radius: 7px; padding: 7px 16px; font-family: var(--mono); font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.btn-apply:hover { background: #1d4ed8; }
+.save-ok { font-size: 11px; color: var(--up); opacity: 0; transition: opacity .3s; font-family: var(--mono); }
+.save-ok.show { opacity: 1; }
 
-  @media(max-width:768px){
-    .layout{grid-template-columns:1fr;}
-    .sidebar{border-right:none;border-bottom:1px solid var(--border);}
-    header,.statusbar,.main{padding-left:16px;padding-right:16px;}
-  }
+@media(max-width:640px){
+  header { padding: 0 16px; }
+  .prices-page, .alerts-page { padding: 14px 16px; }
+  .statusbar { padding: 8px 16px; gap: 14px; }
+  .tabs { padding: 0 16px; }
+  .sectors-grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
@@ -175,269 +204,290 @@
   <div class="brand">
     <div class="brand-icon">📈</div>
     <div>
-      <div class="brand-name">PRICE ALERT DASHBOARD</div>
-      <div class="brand-sub">S&amp;P 500 + Commodities · Powered by Yahoo Finance</div>
+      <div class="brand-name">PRICE DASHBOARD</div>
+      <div class="brand-sub">S&amp;P 500 + Commodities · Yahoo Finance</div>
     </div>
   </div>
-  <div class="live-pill">
-    <div class="live-dot" id="liveDot"></div>
-    <span id="liveLabel">CONNECTING</span>
+  <div class="header-right">
+    <div class="live-pill"><div class="live-dot" id="liveDot"></div><span id="liveLabel">CONNECTING</span></div>
   </div>
 </header>
 
-<div class="statusbar">
-  <div class="stat"><span class="stat-k">STATUS</span><span class="stat-v green" id="statusText">—</span></div>
-  <div class="stat"><span class="stat-k">SYMBOLS</span><span class="stat-v" id="symbolsCount">—</span></div>
-  <div class="stat"><span class="stat-k">SCANS</span><span class="stat-v" id="scanCount">—</span></div>
-  <div class="stat"><span class="stat-k">LAST SCAN</span><span class="stat-v" id="lastChecked">—</span></div>
-  <div class="stat"><span class="stat-k">ALERTS</span><span class="stat-v green" id="totalAlerts">0</span></div>
-  <div class="stat"><span class="stat-k">ONLINE SINCE</span><span class="stat-v" id="uptimeStart">—</span></div>
+<div class="tabs">
+  <div class="tab active" onclick="showTab('prices')">📊 Live Prices</div>
+  <div class="tab" onclick="showTab('alerts')" id="alertsTab">🚨 Alerts by Sector <span class="tab-badge" id="alertBadge" style="display:none">0</span></div>
 </div>
 
-<div class="layout">
+<div class="statusbar">
+  <div class="stat"><span class="stat-k">STATUS</span><span class="stat-v green" id="statusText">—</span></div>
+  <div class="stat"><span class="stat-k">SYMBOLS</span><span class="stat-v" id="symCount">—</span></div>
+  <div class="stat"><span class="stat-k">SCANS</span><span class="stat-v" id="scanCount">—</span></div>
+  <div class="stat"><span class="stat-k">LAST SCAN</span><span class="stat-v" id="lastScan">—</span></div>
+  <div class="stat"><span class="stat-k">ALERTS</span><span class="stat-v" style="color:var(--down)" id="alertCount">0</span></div>
+</div>
 
-  <aside class="sidebar">
-
-    <!-- Settings -->
-    <div>
-      <div class="s-title">⚙️ Alert Settings</div>
-
-      <div class="field">
-        <label>Price Change Threshold (%)</label>
-        <input type="number" id="thresholdPct" value="5" min="0.1" max="100" step="0.5">
-        <div class="hint">Alert when price moves by this % within the time window</div>
-      </div>
-
-      <div class="field">
-        <label>Time Window (minutes)</label>
-        <input type="number" id="windowMin" value="5" min="1" max="1440" step="1">
-        <div class="hint">Measure price change over this period</div>
-      </div>
-
-      <div class="field">
-        <label>Scan Interval (seconds)</label>
-        <input type="number" id="pollSec" value="60" min="30" max="600" step="10">
-        <div class="hint">How often to refresh prices (min 30s)</div>
-      </div>
-
-      <div class="s-title" style="margin-top:8px">📊 Monitor</div>
-      <div class="toggle-row">
-        <span class="toggle-label">🛢️ Commodities</span>
-        <label class="toggle"><input type="checkbox" id="toggleCommodities" checked onchange="saveSettings()"><span class="slider"></span></label>
-      </div>
-      <div class="toggle-row" style="margin-bottom:12px">
-        <span class="toggle-label">📊 S&amp;P 500 Stocks</span>
-        <label class="toggle"><input type="checkbox" id="toggleSP500" checked onchange="saveSettings()"><span class="slider"></span></label>
-      </div>
-
-      <button class="btn btn-primary" onclick="saveSettings()">APPLY SETTINGS</button>
-      <div class="save-msg" id="saveMsg">✓ Saved</div>
-      <button class="btn btn-ghost" onclick="clearAlerts()">CLEAR ALL ALERTS</button>
-    </div>
-
-    <!-- Filters -->
-    <div>
-      <div class="s-title">🔍 Filter</div>
-      <div class="filters">
-        <button class="filter-btn active" onclick="setFilter('ALL',this)">All <span class="filter-count" id="c-ALL">0</span></button>
-        <button class="filter-btn" onclick="setFilter('Index',this)">📉 Indices <span class="filter-count" id="c-Index">0</span></button>
-        <button class="filter-btn" onclick="setFilter('Energy',this)">⚡ Energy <span class="filter-count" id="c-Energy">0</span></button>
-        <button class="filter-btn" onclick="setFilter('Metals',this)">🥇 Metals <span class="filter-count" id="c-Metals">0</span></button>
-        <button class="filter-btn" onclick="setFilter('Grains',this)">🌾 Grains <span class="filter-count" id="c-Grains">0</span></button>
-        <button class="filter-btn" onclick="setFilter('Softs',this)">☕ Softs <span class="filter-count" id="c-Softs">0</span></button>
-        <button class="filter-btn" onclick="setFilter('Livestock',this)">🐄 Livestock <span class="filter-count" id="c-Livestock">0</span></button>
-        <button class="filter-btn" onclick="setFilter('Equity',this)">📊 S&amp;P 500 <span class="filter-count" id="c-Equity">0</span></button>
+<!-- ════ PAGE: PRICES ════ -->
+<div class="page active" id="page-prices">
+  <div class="prices-page">
+    <div class="toolbar">
+      <input class="search-box" id="searchBox" placeholder="Search ticker or name..." oninput="renderTable()">
+      <div class="cat-filters" id="catFilters">
+        <div class="cat-pill active" data-cat="ALL" onclick="setCat('ALL',this)">All</div>
+        <div class="cat-pill" data-cat="Indices"   onclick="setCat('Indices',this)">📉 Indices</div>
+        <div class="cat-pill" data-cat="Energy"    onclick="setCat('Energy',this)">⚡ Energy</div>
+        <div class="cat-pill" data-cat="Metals"    onclick="setCat('Metals',this)">🥇 Metals</div>
+        <div class="cat-pill" data-cat="Grains"    onclick="setCat('Grains',this)">🌾 Grains</div>
+        <div class="cat-pill" data-cat="Softs"     onclick="setCat('Softs',this)">☕ Softs</div>
+        <div class="cat-pill" data-cat="Livestock" onclick="setCat('Livestock',this)">🐄 Livestock</div>
+        <div class="cat-pill" data-cat="Equity"    onclick="setCat('Equity',this)">📊 S&amp;P 500</div>
       </div>
     </div>
+    <div class="table-wrap">
+      <table id="priceTable">
+        <thead>
+          <tr>
+            <th onclick="sortBy('ticker')">TICKER</th>
+            <th onclick="sortBy('name')">NAME</th>
+            <th onclick="sortBy('category')">SECTOR</th>
+            <th onclick="sortBy('price')" style="text-align:right">PRICE</th>
+            <th onclick="sortBy('pct_change')" style="text-align:right">CHANGE%</th>
+            <th>UPDATED</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr><td colspan="6" class="no-data">Loading prices...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
-    <div>
-      <div class="s-title">↕️ Direction</div>
-      <div class="filters">
-        <button class="filter-btn active" onclick="setDir('ALL',this)">All Moves</button>
-        <button class="filter-btn" onclick="setDir('UP',this)">▲ Up Only</button>
-        <button class="filter-btn" onclick="setDir('DOWN',this)">▼ Down Only</button>
-      </div>
+<!-- ════ PAGE: ALERTS ════ -->
+<div class="page" id="page-alerts">
+  <div class="alerts-page">
+
+    <div class="settings-bar">
+      <div class="sf"><label>Threshold (%)</label><input type="number" id="cfgThreshold" value="5" min="0.1" step="0.5"></div>
+      <div class="sf"><label>Window (min)</label><input type="number" id="cfgWindow" value="5" min="1" step="1"></div>
+      <div class="sf"><label>Scan interval (s)</label><input type="number" id="cfgPoll" value="60" min="30" step="10"></div>
+      <button class="btn-apply" onclick="saveConfig()">APPLY</button>
+      <span class="save-ok" id="saveOk">✓ Saved</span>
     </div>
 
-  </aside>
-
-  <main class="main">
-    <div class="loading-bar"><div class="loading-bar-inner" id="loadingBar"></div></div>
-    <div class="panel-header">
-      <div class="panel-title">
-        Real-time Price Alerts
-        <span class="panel-count" id="visibleCount">0</span>
+    <div class="alerts-header">
+      <div class="alerts-title">Active Alerts — grouped by sector</div>
+      <div class="alerts-sub" id="alertsSubtitle">Symbols with price change ≥ threshold appear here.</div>
+    </div>
+    <div class="sectors-grid" id="sectorsGrid">
+      <div class="no-alerts">
+        <div class="no-alerts-icon">📡</div>
+        <div class="no-alerts-title">No alerts yet</div>
+        <div class="no-alerts-sub">When a symbol moves ≥ your threshold<br>it appears here, grouped by sector.</div>
       </div>
     </div>
-    <div class="alerts" id="alertsList">
-      <div class="empty">
-        <div class="empty-icon">📡</div>
-        <div class="empty-title">Scanning markets...</div>
-        <div class="empty-sub">
-          Monitoring S&amp;P 500 stocks and major commodities<br>
-          via Yahoo Finance. First scan takes ~30 seconds.<br><br>
-          Alerts appear here the moment a price moves<br>
-          beyond your configured threshold.
-        </div>
-      </div>
-    </div>
-  </main>
-
+  </div>
 </div>
 
 <script>
-let allAlerts = [];
+// ── State ──
+let allPrices  = [];
+let allAlerts  = {};  // by_sector
 let currentCat = 'ALL';
-let currentDir = 'ALL';
+let sortKey    = 'pct_change';
+let sortAsc    = false;
 
-function setFilter(cat, el) {
+const SECTOR_ICONS = {
+  Energy:'⚡', Metals:'🥇', Grains:'🌾', Softs:'☕',
+  Livestock:'🐄', Indices:'📉', Equity:'📊', Commodity:'🛢️'
+};
+
+// ── Tabs ──
+function showTab(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+
+// ── Category filter ──
+function setCat(cat, el) {
   currentCat = cat;
-  el.closest('.filters').querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
-  render();
-}
-function setDir(dir, el) {
-  currentDir = dir;
-  el.closest('.filters').querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-  el.classList.add('active');
-  render();
+  renderTable();
 }
 
-function filtered() {
-  return allAlerts.filter(a => {
-    const cOk = currentCat === 'ALL' || a.category === currentCat;
-    const dOk = currentDir === 'ALL'
-      || (currentDir === 'UP'   && a.pct_change > 0)
-      || (currentDir === 'DOWN' && a.pct_change < 0);
-    return cOk && dOk;
-  });
+// ── Sort ──
+function sortBy(key) {
+  if (sortKey === key) sortAsc = !sortAsc;
+  else { sortKey = key; sortAsc = key === 'ticker' || key === 'name'; }
+  document.querySelectorAll('thead th').forEach(th => th.classList.remove('sorted'));
+  event.currentTarget.classList.add('sorted');
+  renderTable();
 }
 
+// ── Format price ──
 function fmtPrice(n) {
-  if (n >= 1000) return '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-  return '$' + n.toFixed(4);
+  if (n >= 1000) return n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  if (n >= 10)   return n.toFixed(2);
+  return n.toFixed(4);
 }
 
-function render() {
-  const items = filtered();
-  document.getElementById('visibleCount').textContent = items.length;
-  document.getElementById('totalAlerts').textContent  = allAlerts.length;
-
-  ['ALL','Index','Energy','Metals','Grains','Softs','Livestock','Equity'].forEach(cat => {
-    const el = document.getElementById('c-' + cat);
-    if (el) el.textContent = cat === 'ALL' ? allAlerts.length : allAlerts.filter(a => a.category === cat).length;
+// ── Render prices table ──
+function renderTable() {
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  let rows = allPrices.filter(r => {
+    const catOk = currentCat === 'ALL' || r.category === currentCat;
+    const qOk   = !q || r.ticker.toLowerCase().includes(q) || r.name.toLowerCase().includes(q);
+    return catOk && qOk;
   });
 
-  const list = document.getElementById('alertsList');
-  if (items.length === 0) {
-    list.innerHTML = `
-      <div class="empty">
-        <div class="empty-icon">📡</div>
-        <div class="empty-title">No alerts yet</div>
-        <div class="empty-sub">Watching ${document.getElementById('symbolsCount').textContent || '—'} symbols.<br>Alerts appear here when threshold is crossed.</div>
+  rows.sort((a,b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  const tbody = document.getElementById('tableBody');
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="no-data">No results</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const isAlert = Math.abs(r.pct_change) >= (window._threshold || 5);
+    const dir = r.pct_change > 0 ? 'up' : r.pct_change < 0 ? 'down' : 'flat';
+    const sign = r.pct_change > 0 ? '+' : '';
+    const rowCls = isAlert ? (r.pct_change > 0 ? 'alert-row up-row' : 'alert-row') : '';
+    const timeStr = r.updated ? r.updated.replace(' UTC','').split(' ')[1] : '—';
+    return `<tr class="${rowCls}">
+      <td class="td-ticker">${r.ticker}</td>
+      <td class="td-name">${r.name}</td>
+      <td class="td-cat"><span class="cat-label ${r.category}">${r.category}</span></td>
+      <td class="td-price">$${fmtPrice(r.price)}</td>
+      <td class="td-chg ${dir}">${sign}${r.pct_change.toFixed(2)}%</td>
+      <td class="td-updated">${timeStr}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Render alerts by sector ──
+function renderAlerts() {
+  const grid = document.getElementById('sectorsGrid');
+  const sectors = Object.keys(allAlerts);
+
+  if (sectors.length === 0) {
+    grid.innerHTML = `
+      <div class="no-alerts">
+        <div class="no-alerts-icon">📡</div>
+        <div class="no-alerts-title">No alerts yet</div>
+        <div class="no-alerts-sub">When a symbol moves ≥ your threshold<br>it will appear here grouped by sector.<br><br>Try lowering the threshold to see more.</div>
       </div>`;
     return;
   }
 
-  list.innerHTML = items.map(a => {
-    const isUp = a.pct_change > 0;
-    const sign = isUp ? '+' : '';
-    const cls  = isUp ? 'up' : 'down';
-    const arrow = isUp ? '▲' : '▼';
-    return `
-      <div class="alert-card ${cls}">
-        <div class="card-top">
-          <div class="card-names">
-            <div class="card-name">${a.name || a.ticker}</div>
-            <div class="card-ticker">${a.ticker}</div>
-          </div>
-          <div class="pct-badge ${cls}">${arrow} ${sign}${a.pct_change.toFixed(2)}%</div>
+  grid.innerHTML = sectors.map(sector => {
+    const items = allAlerts[sector].sort((a,b) => Math.abs(b.pct_change) - Math.abs(a.pct_change));
+    const icon = SECTOR_ICONS[sector] || '📌';
+    const rows = items.map(a => {
+      const dir  = a.pct_change > 0 ? 'up' : 'down';
+      const sign = a.pct_change > 0 ? '+' : '';
+      return `<div class="alert-item">
+        <div class="ai-left">
+          <div class="ai-ticker">${a.ticker}</div>
+          <div class="ai-name">${a.name}</div>
         </div>
-        <div class="card-meta">
-          <div class="meta">
-            <div class="meta-k">Category</div>
-            <div class="meta-v"><span class="cat-badge cat-${a.category}">${a.category}</span></div>
-          </div>
-          <div class="meta">
-            <div class="meta-k">From</div>
-            <div class="meta-v">${fmtPrice(a.old_price)}</div>
-          </div>
-          <div class="meta">
-            <div class="meta-k">To</div>
-            <div class="meta-v">${fmtPrice(a.new_price)}</div>
-          </div>
-          <div class="meta">
-            <div class="meta-k">Over</div>
-            <div class="meta-v">${a.window_minutes} min</div>
-          </div>
-          <div class="meta">
-            <div class="meta-k">Direction</div>
-            <div class="meta-v">${a.direction}</div>
-          </div>
+        <div class="ai-right">
+          <div class="ai-price">$${fmtPrice(a.price)}</div>
+          <div class="ai-pct ${dir}">${sign}${a.pct_change.toFixed(2)}%</div>
         </div>
-        <div class="card-time">${a.time}</div>
       </div>`;
+    }).join('');
+
+    return `<div class="sector-card">
+      <div class="sector-header">
+        <div class="sector-name">${icon} ${sector}</div>
+        <div class="sector-count">${items.length} alert${items.length>1?'s':''}</div>
+      </div>
+      <div class="sector-body">${rows}</div>
+    </div>`;
   }).join('');
 }
 
-async function fetchData() {
+// ── Fetch prices ──
+async function fetchPrices() {
   try {
-    const r = await fetch('/api/alerts');
+    const r = await fetch('/api/prices');
     const d = await r.json();
 
-    document.getElementById('liveDot').className   = 'live-dot';
+    document.getElementById('liveDot').className = 'live-dot';
     document.getElementById('liveLabel').textContent = 'LIVE';
-    document.getElementById('statusText').textContent  = d.yfinance_ok ? 'CONNECTED' : 'INITIALIZING';
-    document.getElementById('symbolsCount').textContent = d.symbols_tracked || '—';
-    document.getElementById('scanCount').textContent    = d.scan_count || '0';
-    document.getElementById('lastChecked').textContent  = d.last_checked ? d.last_checked.replace(' UTC','') : '—';
-    document.getElementById('uptimeStart').textContent  = d.uptime_start  ? d.uptime_start.replace(' UTC','') : '—';
+    document.getElementById('statusText').textContent = d.status.yfinance_ok ? 'CONNECTED' : 'INITIALIZING';
+    document.getElementById('symCount').textContent  = d.prices.length;
+    document.getElementById('scanCount').textContent = d.status.scan_count || '0';
+    const lc = d.status.last_checked;
+    document.getElementById('lastScan').textContent  = lc ? lc.split(' ')[1] : '—';
 
-    // Loading bar animation based on scan progress
-    document.getElementById('loadingBar').style.width = d.yfinance_ok ? '100%' : '40%';
-
-    // Sync settings ONLY on first load
-    if (d.config && !window._settingsLoaded) {
-      window._settingsLoaded = true;
-      document.getElementById('thresholdPct').value = d.config.price_change_threshold_pct;
-      document.getElementById('windowMin').value    = Math.round(d.config.window_seconds / 60);
-      document.getElementById('pollSec').value      = d.config.poll_interval_seconds;
-      document.getElementById('toggleCommodities').checked = d.config.monitor_commodities;
-      document.getElementById('toggleSP500').checked       = d.config.monitor_sp500;
+    // Sync config on first load only
+    if (d.config && !window._cfgLoaded) {
+      window._cfgLoaded = true;
+      window._threshold = d.config.price_change_threshold_pct;
+      document.getElementById('cfgThreshold').value = d.config.price_change_threshold_pct;
+      document.getElementById('cfgWindow').value    = Math.round(d.config.window_seconds / 60);
+      document.getElementById('cfgPoll').value      = d.config.poll_interval_seconds;
     }
 
-    allAlerts = d.alerts;
-    render();
+    allPrices = d.prices;
+    renderTable();
   } catch(e) {
-    document.getElementById('liveDot').className    = 'live-dot offline';
+    document.getElementById('liveDot').className = 'live-dot off';
     document.getElementById('liveLabel').textContent = 'OFFLINE';
   }
 }
 
-async function saveSettings() {
-  const payload = {
-    price_change_threshold_pct: parseFloat(document.getElementById('thresholdPct').value),
-    window_seconds:  parseInt(document.getElementById('windowMin').value) * 60,
-    poll_interval_seconds: parseInt(document.getElementById('pollSec').value),
-    monitor_commodities: document.getElementById('toggleCommodities').checked,
-    monitor_sp500:       document.getElementById('toggleSP500').checked,
-  };
+// ── Fetch alerts ──
+async function fetchAlerts() {
+  try {
+    const r = await fetch('/api/alerts');
+    const d = await r.json();
+    allAlerts = d.by_sector || {};
+    const total = d.total || 0;
+
+    document.getElementById('alertCount').textContent = total;
+    const badge = document.getElementById('alertBadge');
+    if (total > 0) { badge.style.display = ''; badge.textContent = total; }
+    else { badge.style.display = 'none'; }
+
+    renderAlerts();
+  } catch(e) {}
+}
+
+// ── Save config ──
+async function saveConfig() {
+  const threshold = parseFloat(document.getElementById('cfgThreshold').value);
+  window._threshold = threshold;
   await fetch('/api/config', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      price_change_threshold_pct: threshold,
+      window_seconds:  parseInt(document.getElementById('cfgWindow').value) * 60,
+      poll_interval_seconds: parseInt(document.getElementById('cfgPoll').value),
+    })
   });
-  const msg = document.getElementById('saveMsg');
-  msg.classList.add('show');
-  setTimeout(() => msg.classList.remove('show'), 2000);
+  const el = document.getElementById('saveOk');
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2000);
 }
 
-async function clearAlerts() {
-  await fetch('/api/clear', {method:'POST'});
-  allAlerts = [];
-  render();
-}
-
-fetchData();
-setInterval(fetchData, 5000);
+// ── Poll ──
+fetchPrices();
+fetchAlerts();
+setInterval(fetchPrices,  8000);
+setInterval(fetchAlerts, 10000);
 </script>
 </body>
 </html>
