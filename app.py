@@ -179,19 +179,53 @@ def log_error(msg):
 # ─────────────────────────────────────────
 # FETCH — batch download with open+close
 # ─────────────────────────────────────────
+def fetch_single(ticker, yf):
+    """Fetch one ticker via Ticker.history() — reliable for =F and ^ symbols."""
+    try:
+        hist = yf.Ticker(ticker).history(period="1d", interval="5m")
+        if hist.empty:
+            return None
+        closes = hist["Close"].dropna()
+        opens  = hist["Open"].dropna()
+        if closes.empty:
+            return None
+        price = float(closes.iloc[-1])
+        open_ = float(opens.iloc[0]) if not opens.empty else price
+        if price > 0:
+            return {"price": price, "open": open_}
+    except Exception:
+        pass
+    return None
+
+
 def fetch_all_prices(tickers):
     """
-    Batch download 1d / 5m bars for all tickers.
+    - Commodities/Indices (=F and ^ tickers): always use individual Ticker.history()
+      because yf.download group_by silently drops or renames them.
+    - Equities: batch download in chunks of 50, fallback individually if missed.
     Returns {ticker: {"price": float, "open": float}}.
-    Uses group_by='ticker' so multi-ticker DataFrames are easy to slice.
-    Falls back to individual Ticker.history() for any failures.
     """
     import yfinance as yf
     results = {}
-    chunk_size = 50
 
-    for i in range(0, len(tickers), chunk_size):
-        chunk = tickers[i:i + chunk_size]
+    # Split into special (=F, ^) vs equity tickers
+    special  = [t for t in tickers if "=" in t or t.startswith("^")]
+    equities = [t for t in tickers if t not in special]
+
+    # Fetch special tickers one by one (fast enough, ~25 tickers)
+    print(f"[{ts_now()}] Fetching {len(special)} commodity/index tickers...", flush=True)
+    for ticker in special:
+        r = fetch_single(ticker, yf)
+        if r:
+            results[ticker] = r
+
+    print(f"[{ts_now()}] Got {len(results)}/{len(special)} commodity/index prices.", flush=True)
+
+    # Batch fetch equities in chunks of 50
+    chunk_size = 50
+    print(f"[{ts_now()}] Fetching {len(equities)} equity tickers in batches...", flush=True)
+    for i in range(0, len(equities), chunk_size):
+        chunk = equities[i:i + chunk_size]
         try:
             raw = yf.download(
                 tickers=" ".join(chunk),
@@ -203,12 +237,11 @@ def fetch_all_prices(tickers):
                 group_by="ticker",
             )
             if raw.empty:
-                log_error(f"Chunk {i//chunk_size} empty")
+                log_error(f"Equity chunk {i//chunk_size} empty")
                 continue
 
             for ticker in chunk:
                 try:
-                    # Single ticker: raw IS the df; multi: raw[ticker]
                     df = raw if len(chunk) == 1 else raw.get(ticker, None)
                     if df is None or df.empty:
                         continue
@@ -224,27 +257,16 @@ def fetch_all_prices(tickers):
                 except Exception:
                     pass
         except Exception as e:
-            log_error(f"Batch chunk {i//chunk_size}: {e}")
+            log_error(f"Equity batch chunk {i//chunk_size}: {e}")
 
-    # Fallback: individually fetch anything still missing
-    missing = [t for t in tickers if t not in results]
-    if missing:
-        print(f"[{ts_now()}] Fallback for {len(missing)} tickers...", flush=True)
-        for ticker in missing:
-            try:
-                hist = yf.Ticker(ticker).history(period="1d", interval="5m")
-                if hist.empty:
-                    continue
-                closes = hist["Close"].dropna()
-                opens  = hist["Open"].dropna()
-                if closes.empty:
-                    continue
-                price = float(closes.iloc[-1])
-                open_ = float(opens.iloc[0]) if not opens.empty else price
-                if price > 0:
-                    results[ticker] = {"price": price, "open": open_}
-            except Exception:
-                pass
+    # Fallback for any equity still missing
+    missing_eq = [t for t in equities if t not in results]
+    if missing_eq:
+        print(f"[{ts_now()}] Equity fallback for {len(missing_eq)} tickers...", flush=True)
+        for ticker in missing_eq:
+            r = fetch_single(ticker, yf)
+            if r:
+                results[ticker] = r
 
     return results
 
